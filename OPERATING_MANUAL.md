@@ -1,6 +1,6 @@
 # URL Screener — Operating Manual & Developer Guide
 
-**Current version: 1.0.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow) and [§12 Version Lineage](#12-version-lineage).
+**Current version: 1.1.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
 
 A developer-facing guide to how this app is built, how to run it, and how to
 extend it. If you are new to the project, read this top to bottom once.
@@ -13,34 +13,51 @@ extend it. If you are new to the project, read this top to bottom once.
 
 ## 1. What the app does
 
-The user pastes a website URL into a web page. The app:
+The app has **one smart input field** that accepts either a **website URL** or a
+**YouTube channel** (name, `@handle`, or channel URL) and auto-detects which.
 
+**For a website** (no API key needed):
 1. Fetches the page's HTML.
 2. Extracts the **title** and **meta description**.
 3. Generates a short **auto-summary** from the page's own visible text.
-4. Shows the **title, description, and summary** in a clean UI.
-5. Lets the user **clear** the results and try another URL.
 
-There is **no external AI service and no API key**. All summarization happens
-locally with plain Python, so the app runs fully offline (aside from fetching
-the target page itself).
+**For a YouTube channel** (uses the YouTube Data API v3 — see §13):
+1. Resolves the channel from a name/handle/URL.
+2. Fetches its **overview** (title, handle, about text) and **links/creator info**
+   (avatar, banner, country, join date, channel link).
+3. Generates an **auto-summary** of the channel's description.
+
+In both cases the result is shown in a clean UI, and the user can **clear** the
+results to try another input. Website summarization runs fully locally; only the
+YouTube feature calls an external API.
 
 ---
 
 ## 2. Project structure
 
 ```
-URLScreener/
-├── app.py               # Flask backend + all extraction/summarization logic
+url-screener/
+├── app.py               # Flask backend: routing + website screening
+├── summarizer.py        # Shared extractive text-summarizer (used by both features)
+├── youtube_api.py       # YouTube channel lookup via YouTube Data API v3
 ├── templates/
 │   └── index.html       # The single-page web UI (HTML + CSS + JS)
-├── requirements.txt     # Python dependencies (Flask, requests)
+├── requirements.txt     # Python dependencies (Flask, requests, python-dotenv)
+├── .env.example         # Template for local secrets (copy to .env)
+├── VERSION              # Current version string (single source of truth)
+├── README.md            # Project overview / quick start
 └── OPERATING_MANUAL.md  # This guide
 ```
 
-That's the whole app — two source files. Flask automatically looks for HTML
-templates inside a folder named `templates/`, which is why `index.html` lives
-there.
+Flask automatically looks for HTML templates inside a folder named `templates/`,
+which is why `index.html` lives there.
+
+**How the modules relate:**
+- `app.py` owns the Flask routes and the website pipeline. Its `dispatch_input()`
+  decides website vs YouTube and calls the right handler.
+- `youtube_api.py` owns everything YouTube. It imports the shared summarizer.
+- `summarizer.py` holds the text helpers (`extract_visible_text`, `summarize_text`)
+  so both features share one implementation with no duplication or circular imports.
 
 ---
 
@@ -61,6 +78,17 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+### Optional: configure the YouTube key
+The website feature needs no setup. For the **YouTube** feature, copy the secrets
+template and add your key (see §13 for how to get one):
+
+```powershell
+Copy-Item .env.example .env
+# then edit .env and set YOUTUBE_API_KEY=...
+```
+`app.py` loads `.env` on startup via `python-dotenv`, so the key is picked up
+automatically. `.env` is gitignored and never committed.
+
 ### Start the app
 ```powershell
 python app.py
@@ -77,31 +105,43 @@ Understanding this end-to-end path is the fastest way to learn the codebase.
 
 ```
 Browser (index.html)
-   │  user submits a URL
+   │  user submits a URL or YouTube channel
    │  fetch("/screen", POST, {url})
    ▼
-Flask route  screen()           ── app.py
-   │  calls screen_url(raw_url)
+Flask route  screen()              ── app.py
+   │  calls dispatch_input(raw)
    ▼
-screen_url()  — the orchestrator
-   ├─ normalize_url()      add https:// if missing
-   ├─ is_valid_url()       sanity-check scheme + host
-   ├─ fetch_page()         download HTML with requests
-   ├─ extract_details()    regex out <title> + meta description
-   ├─ extract_visible_text() strip tags/scripts to plain text
-   └─ summarize_text()     score sentences, pick the best few
-   ▼
-returns a JSON dict { ok, url, domain, title, description, summary }
+dispatch_input()  — picks the handler
+   │  youtube_api.looks_like_youtube(raw)?
+   ├─ NO  → screen_url(raw)                     (website pipeline, app.py)
+   │         ├─ normalize_url / is_valid_url
+   │         ├─ fetch_page()        download HTML with requests
+   │         ├─ extract_details()   regex out <title> + meta description
+   │         ├─ extract_visible_text()  (summarizer.py)
+   │         └─ summarize_text()        (summarizer.py)
+   │         ▼  { ok, type:"website", url, domain, title, description, summary }
+   │
+   └─ YES → youtube_api.screen_channel(raw)     (YouTube pipeline)
+             ├─ resolve_channel_id()  name/@handle/URL → channel id (Data API)
+             ├─ _fetch_channel()      channels.list (snippet + branding)
+             └─ summarize_text()      (summarizer.py)
+             ▼  { ok, type:"youtube", title, handle, description, summary,
+                  channel_url, avatar, banner, country, published }
    ▼
 Browser renders the fields and shows the "Clear results" button
 ```
 
 ---
 
-## 5. The backend (`app.py`) explained
+## 5. The backend explained
 
-The file is organized as a pipeline, with one function per step. Each is small
-and independently testable.
+The code is split into three small modules, each with one job:
+
+- **`app.py`** — Flask routes, the website pipeline, and the input dispatcher.
+- **`summarizer.py`** — the shared text/summary helpers (used by both features).
+- **`youtube_api.py`** — the YouTube channel pipeline (documented in §13).
+
+### `app.py` functions
 
 | Function | Responsibility |
 |---|---|
@@ -109,10 +149,20 @@ and independently testable.
 | `is_valid_url(url)` | Confirms we have a real scheme and host. |
 | `fetch_page(url)` | Downloads the page; returns `(html, final_url)` after redirects. |
 | `extract_details(html)` | Regex-extracts the `<title>` and `<meta name="description">` (falls back to Open Graph `og:description`). |
+| `screen_url(raw)` | Website orchestrator; returns a result dict with `type:"website"`. |
+| `dispatch_input(raw)` | **The router.** Calls `youtube_api.looks_like_youtube()`; sends the input to the YouTube handler or the website handler. |
+
+### `summarizer.py` functions (shared)
+
+| Function | Responsibility |
+|---|---|
 | `extract_visible_text(html)` | Removes `<script>`/`<style>`/comments/tags and collapses whitespace. |
 | `split_sentences(text)` | Splits text into sentences on `.!?`. |
-| `summarize_text(text)` | The summarizer (see below). |
-| `screen_url(raw)` | Orchestrates all of the above and handles errors. |
+| `summarize_text(text)` | The extractive summarizer (see below). |
+
+> These three lived in `app.py` in v1.0.0. They moved to `summarizer.py` in
+> v1.1.0 so the YouTube feature can reuse them without duplication. Behavior is
+> unchanged.
 
 ### The summarization algorithm (extractive frequency scoring)
 This is the heart of the app. It does **not** generate new prose; it **selects**
@@ -346,7 +396,28 @@ the first step of every release** (see §11.5). Newest version on top.
 
 | Version | Date | Git tag | Summary |
 |---|---|---|---|
+| **1.1.0** | 2026-06-05 | `v1.1.0` | YouTube channel lookup; one auto-detecting input field. |
 | **1.0.0** | 2026-06-05 | `v1.0.0` | Initial release. |
+
+### 1.1.0 — 2026-06-05 — `v1.1.0`
+**Added**
+- **YouTube channel lookup** (`youtube_api.py`) via the YouTube Data API v3:
+  resolve a channel from a name, `@handle`, or channel URL and return its
+  overview (title, handle, about, auto-summary) plus links/creator info
+  (avatar, banner, country, join date, channel link).
+- **One auto-detecting input field** — `dispatch_input()` routes the input to
+  the website or YouTube handler; `looks_like_youtube()` does the detection.
+- UI help text listing accepted inputs, and a dedicated YouTube result layout
+  (banner, avatar, meta row, links).
+- `.env` support via `python-dotenv`; `.env.example` template; §13 setup guide.
+- API-specific error handling (missing key, HTTP 403/quota, timeouts, no match).
+
+**Changed**
+- Extracted the shared text helpers (`extract_visible_text`, `split_sentences`,
+  `summarize_text`) from `app.py` into a new **`summarizer.py`** module so both
+  features reuse one implementation. Website behavior is unchanged.
+- Every result now carries a `type` field (`"website"` or `"youtube"`) so the
+  front-end knows which layout to render.
 
 ### 1.0.0 — 2026-06-05 — `v1.0.0`
 **Added**
@@ -372,4 +443,64 @@ TEMPLATE — copy this block for the next release, fill it in, and add a table r
 **Removed**
 - ...
 -->
+
+---
+
+## 13. YouTube Data API Setup
+
+The YouTube channel feature uses the official **YouTube Data API v3**. Websites
+work without any of this — you only need a key to look up YouTube channels.
+
+### 13.1 Get a free API key (about 2 minutes)
+
+1. Go to the **Google Cloud Console**: <https://console.cloud.google.com/>.
+2. Create a project (top bar → project dropdown → **New Project**), or pick an
+   existing one.
+3. Open **APIs & Services → Library**, search for **“YouTube Data API v3”**, and
+   click **Enable**.
+4. Open **APIs & Services → Credentials → Create credentials → API key**.
+5. Copy the key. (Recommended: click **Edit** on the key → under *API restrictions*
+   restrict it to **YouTube Data API v3** so it can't be misused.)
+
+> The API has a generous **free daily quota** (10,000 units/day). Each channel
+> lookup in this app costs only a few units, so normal use stays free.
+
+### 13.2 Tell the app about the key
+
+Create a `.env` file in the project root (copy the template):
+
+```powershell
+Copy-Item .env.example .env
 ```
+
+Edit `.env` so it reads:
+
+```
+YOUTUBE_API_KEY=AIza...your-actual-key...
+```
+
+Restart the app (`python app.py`). That's it — `app.py` loads `.env` on startup
+via `python-dotenv`, and `youtube_api.get_api_key()` reads `YOUTUBE_API_KEY`.
+
+**Security:** `.env` is listed in `.gitignore`, so your key is never committed.
+Never paste a real key into `README.md`, the manual, or source files.
+
+### 13.3 How the YouTube pipeline works (`youtube_api.py`)
+
+| Function | Responsibility |
+|---|---|
+| `looks_like_youtube(text)` | Detection: true for `youtube.com`/`youtu.be` links, `@handles`, or bare channel names (anything that isn't a website domain). |
+| `resolve_channel_id(raw, key)` | Turns a name/`@handle`/URL into a concrete channel id, using `channels.forHandle`, `channels.forUsername`, direct id, or `search.list`. |
+| `_fetch_channel(id, key)` | Calls `channels.list` with `part=snippet,brandingSettings`. |
+| `build_result(channel)` | Maps the raw API object to the dict the UI renders. |
+| `screen_channel(raw)` | Orchestrates the above and handles config/API errors. |
+
+### 13.4 Notes & limitations
+
+- **Creator social links** (Instagram, X, etc.) are **not** exposed by the Data
+  API, so the UI links to the channel itself. If you need those later, you'd have
+  to scrape the channel's About page — see §7 for how to add scraping.
+- **Stats and recent videos** are intentionally not shown in v1.1.0. They're easy
+  to add: request `part=statistics` (subscriber/view/video counts) or call
+  `search.list`/`playlistItems.list` for recent videos, then surface the fields
+  in `build_result()` and the UI (see §7 “Add a new output field”).

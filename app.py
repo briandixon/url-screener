@@ -2,17 +2,20 @@
 URL Screener
 ============
 
-A small Flask web app that takes a website URL from the user, fetches the page,
-and returns a brief description plus an auto-generated summary built entirely
-from the page's own content (no external AI API or API key required).
+A small Flask web app with one smart input field that accepts EITHER:
+
+  * a website URL  -> returns the page title, meta description, and a local
+    auto-summary built from the page's own content (no API key required), or
+  * a YouTube channel (name, @handle, or channel URL) -> returns a channel
+    overview, links/creator info, and an auto-summary (uses the YouTube Data
+    API v3; see youtube_api.py and OPERATING_MANUAL.md §13).
 
 How it works at a glance
 ------------------------
-1. The browser (templates/index.html) sends the URL to the /screen endpoint.
-2. fetch_page() downloads the HTML.
-3. extract_details() pulls the title and meta description out of the markup.
-4. summarize_text() builds a short extractive summary from the visible text.
-5. The result is returned as JSON and rendered in the UI.
+1. The browser (templates/index.html) sends the input to the /screen endpoint.
+2. dispatch_input() decides whether it's a website or a YouTube channel.
+3. Websites go through screen_url(); channels go through youtube_api.screen_channel().
+4. The result (tagged with "type") is returned as JSON and rendered in the UI.
 
 Run it with:
     python app.py
@@ -26,7 +29,15 @@ from html import unescape
 from urllib.parse import urlparse
 
 import requests
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+
+# Load environment variables from a local .env file (e.g. YOUTUBE_API_KEY) so
+# the YouTube feature can find its key. Safe to call when no .env exists.
+load_dotenv()
+
+import youtube_api
+from summarizer import extract_visible_text, summarize_text
 
 app = Flask(__name__)
 
@@ -41,17 +52,6 @@ REQUEST_HEADERS = {
 
 # How long to wait (seconds) before giving up on a slow site.
 REQUEST_TIMEOUT = 12
-
-# Very common English words we don't want cluttering the summary scoring.
-STOP_WORDS = {
-    "the", "and", "for", "are", "but", "not", "you", "all", "any", "can",
-    "her", "was", "one", "our", "out", "day", "had", "has", "his", "how",
-    "man", "new", "now", "old", "see", "two", "way", "who", "boy", "did",
-    "its", "let", "put", "say", "she", "too", "use", "this", "that", "with",
-    "from", "they", "will", "would", "there", "their", "what", "about",
-    "which", "when", "your", "have", "more", "here", "than", "then", "them",
-    "these", "some", "into", "only", "other", "such", "also", "been", "were",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -119,79 +119,12 @@ def extract_details(html: str) -> dict:
     return {"title": title, "description": description}
 
 
-# ---------------------------------------------------------------------------
-# Step 4: Reduce the page to clean, readable text.
-# ---------------------------------------------------------------------------
-def extract_visible_text(html: str) -> str:
-    """Strip scripts/styles/tags and return collapsed visible text."""
-    # Remove the parts of the page that aren't human-readable content.
-    html = re.sub(r"<(script|style|noscript|template)[^>]*>.*?</\1>", " ",
-                  html, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r"<!--.*?-->", " ", html, flags=re.DOTALL)
-    # Drop all remaining tags, then decode HTML entities.
-    text = re.sub(r"<[^>]+>", " ", html)
-    text = unescape(text)
-    # Collapse runs of whitespace into single spaces.
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def split_sentences(text: str) -> list:
-    """A simple sentence splitter good enough for summarization."""
-    parts = re.split(r"(?<=[.!?])\s+", text)
-    return [p.strip() for p in parts if len(p.strip()) > 0]
+# Note: the shared text helpers extract_visible_text() and summarize_text()
+# live in summarizer.py (imported above) so the YouTube feature can reuse them.
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Build an extractive summary by scoring sentences.
-# ---------------------------------------------------------------------------
-def summarize_text(text: str, max_sentences: int = 3) -> str:
-    """
-    Pick the most representative sentences using simple word-frequency scoring.
-
-    The idea: words that appear often across the page are likely important, so
-    sentences containing many of those words are good summary candidates. We
-    keep the chosen sentences in their original reading order.
-    """
-    sentences = split_sentences(text)
-    if not sentences:
-        return ""
-    if len(sentences) <= max_sentences:
-        return " ".join(sentences)
-
-    # Count how often each meaningful word appears.
-    word_frequencies = {}
-    for word in re.findall(r"[a-zA-Z]{3,}", text.lower()):
-        if word in STOP_WORDS:
-            continue
-        word_frequencies[word] = word_frequencies.get(word, 0) + 1
-
-    if not word_frequencies:
-        return " ".join(sentences[:max_sentences])
-
-    peak = max(word_frequencies.values())
-
-    # Score each sentence; normalize a bit by length to avoid favoring only
-    # the longest sentences. Only the first ~30 sentences are considered so
-    # we focus on the main content near the top of the page.
-    scored = []
-    for index, sentence in enumerate(sentences[:30]):
-        words = re.findall(r"[a-zA-Z]{3,}", sentence.lower())
-        if not (4 <= len(words) <= 60):
-            continue
-        score = sum(word_frequencies.get(w, 0) for w in words) / (peak * len(words))
-        scored.append((score, index, sentence))
-
-    if not scored:
-        return " ".join(sentences[:max_sentences])
-
-    # Take the top-scoring sentences, then restore original order.
-    top = sorted(scored, key=lambda item: item[0], reverse=True)[:max_sentences]
-    top_in_order = sorted(top, key=lambda item: item[1])
-    return " ".join(sentence for _, _, sentence in top_in_order)
-
-
-# ---------------------------------------------------------------------------
-# Step 6: Orchestrate everything for a single URL.
+# Step 4: Orchestrate everything for a single website URL.
 # ---------------------------------------------------------------------------
 def screen_url(raw_url: str) -> dict:
     """Run the full pipeline and return a result dict for the UI."""
@@ -222,12 +155,26 @@ def screen_url(raw_url: str) -> dict:
 
     return {
         "ok": True,
+        "type": "website",
         "url": final_url,
         "domain": urlparse(final_url).netloc,
         "title": details["title"] or "(no page title found)",
         "description": description,
         "summary": summary or "Not enough readable text on the page to summarize.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Decide whether the input is a website or a YouTube channel.
+# ---------------------------------------------------------------------------
+def dispatch_input(raw: str) -> dict:
+    """Route the user's input to the right handler and return a result dict."""
+    if not (raw or "").strip():
+        return {"ok": False, "type": "unknown",
+                "error": "Please enter a website URL or a YouTube channel."}
+    if youtube_api.looks_like_youtube(raw):
+        return youtube_api.screen_channel(raw)
+    return screen_url(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -241,9 +188,9 @@ def index():
 
 @app.route("/screen", methods=["POST"])
 def screen():
-    """Accept {"url": "..."} JSON and return the screening result as JSON."""
+    """Accept {"url": "..."} JSON (a website URL or YouTube channel) and return JSON."""
     data = request.get_json(silent=True) or {}
-    result = screen_url(data.get("url", ""))
+    result = dispatch_input(data.get("url", ""))
     return jsonify(result)
 
 
