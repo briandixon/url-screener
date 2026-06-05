@@ -129,6 +129,35 @@
     .field-value { font-size: 1rem; line-height: 1.55; }
     .field-title { font-size: 1.2rem; font-weight: 700; line-height: 1.35; }
 
+    /* ---- Input hint / accepted formats --------------------------------- */
+    .hint {
+      margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 16px;
+      font-size: 0.82rem; color: var(--muted);
+    }
+    .hint-item strong { color: #475569; font-weight: 600; }
+
+    /* ---- YouTube result extras ----------------------------------------- */
+    .yt-banner {
+      height: 110px; border-radius: 10px; margin-bottom: 14px;
+      background-size: cover; background-position: center; background-color: #e2e8f0;
+    }
+    .yt-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .yt-avatar {
+      width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+      border: 2px solid var(--border); flex: 0 0 auto;
+    }
+    .yt-head-text { min-width: 0; }
+    .yt-meta { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+    .yt-meta span:not(:last-child)::after { content: " · "; }
+
+    .yt-link {
+      display: inline-block; margin: 4px 8px 0 0; padding: 6px 12px;
+      font-size: 0.85rem; text-decoration: none; color: var(--accent);
+      border: 1.5px solid var(--border); border-radius: 999px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .yt-link:hover { border-color: var(--accent); color: var(--accent-hover); }
+
     footer { text-align: center; margin-top: 22px; color: #64748b; font-size: 0.8rem; }
   </style>
 </head>
@@ -136,22 +165,29 @@
   <div class="wrap">
     <header>
       <h1>🔎 URL Screener</h1>
-      <p>Paste any website link to get a quick description and summary.</p>
+      <p>Enter a website link or a YouTube channel to get a quick description and summary.</p>
     </header>
 
     <div class="card">
       <form id="screen-form">
-        <label for="url-input">Website URL</label>
+        <label for="url-input">Website URL or YouTube channel</label>
         <div class="input-row">
           <input
             id="url-input"
-            type="url"
-            placeholder="example.com or https://example.com"
+            type="text"
+            placeholder="example.com  ·  @MrBeast  ·  Veritasium  ·  youtube.com/@kurzgesagt"
             autocomplete="off"
             required
           />
-          <button type="submit" class="btn-primary" id="screen-btn">Screen URL</button>
+          <button type="submit" class="btn-primary" id="screen-btn">Screen</button>
         </div>
+
+        <!-- Help text so users know exactly what they can enter -->
+        <div class="hint">
+          <span class="hint-item">🌐 <strong>Website:</strong> example.com or full URL</span>
+          <span class="hint-item">▶️ <strong>YouTube:</strong> channel name, @handle, or channel link</span>
+        </div>
+
         <div class="actions">
           <button type="button" class="btn-ghost hidden" id="clear-btn">Clear results</button>
         </div>
@@ -165,7 +201,7 @@
       <!-- Error message -->
       <div class="error hidden" id="error"></div>
 
-      <!-- Results -->
+      <!-- Website results -->
       <div class="results hidden" id="results">
         <a class="result-url" id="result-url" href="#" target="_blank" rel="noopener"></a>
 
@@ -184,9 +220,37 @@
           <div class="field-value" id="result-summary"></div>
         </div>
       </div>
+
+      <!-- YouTube channel results -->
+      <div class="results hidden" id="yt-results">
+        <div class="yt-banner hidden" id="yt-banner"></div>
+
+        <div class="yt-head">
+          <img class="yt-avatar hidden" id="yt-avatar" alt="Channel avatar" />
+          <div class="yt-head-text">
+            <div class="field-value field-title" id="yt-title"></div>
+            <div class="yt-meta" id="yt-meta"></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">About</div>
+          <div class="field-value" id="yt-description"></div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">Auto Summary</div>
+          <div class="field-value" id="yt-summary"></div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">Links &amp; Creator</div>
+          <div class="field-value" id="yt-links"></div>
+        </div>
+      </div>
     </div>
 
-    <footer>Built with Flask &middot; Summaries are generated locally from page content.</footer>
+    <footer>Built with Flask &middot; Website summaries are generated locally; YouTube data via the YouTube Data API.</footer>
   </div>
 
   <script>
@@ -197,15 +261,88 @@
     const clearBtn    = document.getElementById("clear-btn");
     const statusBox   = document.getElementById("status");
     const errorBox    = document.getElementById("error");
+
+    // Website result elements.
     const resultsBox  = document.getElementById("results");
     const resultUrl   = document.getElementById("result-url");
     const resultTitle = document.getElementById("result-title");
     const resultDesc  = document.getElementById("result-description");
     const resultSumm  = document.getElementById("result-summary");
 
+    // YouTube result elements.
+    const ytBox     = document.getElementById("yt-results");
+    const ytBanner  = document.getElementById("yt-banner");
+    const ytAvatar  = document.getElementById("yt-avatar");
+    const ytTitle   = document.getElementById("yt-title");
+    const ytMeta    = document.getElementById("yt-meta");
+    const ytDesc    = document.getElementById("yt-description");
+    const ytSumm    = document.getElementById("yt-summary");
+    const ytLinks   = document.getElementById("yt-links");
+
     // Small helpers to toggle visibility.
     const show = (el) => el.classList.remove("hidden");
     const hide = (el) => el.classList.add("hidden");
+
+    // Hide every result panel (used before showing a fresh one).
+    function hideAllResults() {
+      hide(resultsBox);
+      hide(ytBox);
+    }
+
+    // --- Render a WEBSITE result ----------------------------------------
+    function renderWebsite(data) {
+      resultUrl.textContent = data.url;
+      resultUrl.href = data.url;
+      resultTitle.textContent = data.title;
+      resultDesc.textContent = data.description;
+      resultSumm.textContent = data.summary;
+      show(resultsBox);
+    }
+
+    // --- Render a YOUTUBE channel result --------------------------------
+    function renderYouTube(data) {
+      // Banner (optional).
+      if (data.banner) {
+        ytBanner.style.backgroundImage = `url("${data.banner}")`;
+        show(ytBanner);
+      } else {
+        hide(ytBanner);
+      }
+
+      // Avatar (optional).
+      if (data.avatar) {
+        ytAvatar.src = data.avatar;
+        show(ytAvatar);
+      } else {
+        hide(ytAvatar);
+      }
+
+      ytTitle.textContent = data.title;
+
+      // Meta row: handle · country · joined date (only the parts we have).
+      const meta = [];
+      if (data.handle)    meta.push(data.handle);
+      if (data.country)   meta.push(data.country);
+      if (data.published) meta.push("Joined " + data.published);
+      ytMeta.innerHTML = meta.map((m) => `<span></span>`).join("");
+      meta.forEach((text, i) => { ytMeta.children[i].textContent = text; });
+
+      ytDesc.textContent = data.description;
+      ytSumm.textContent = data.summary;
+
+      // Links: a "Visit channel" button (creator social links aren't exposed
+      // by the YouTube Data API, so we link to the channel itself).
+      ytLinks.innerHTML = "";
+      const link = document.createElement("a");
+      link.className = "yt-link";
+      link.href = data.channel_url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "▶ Visit channel on YouTube";
+      ytLinks.appendChild(link);
+
+      show(ytBox);
+    }
 
     // --- Handle form submission -----------------------------------------
     form.addEventListener("submit", async (event) => {
@@ -215,7 +352,7 @@
 
       // Reset UI into the "loading" state.
       hide(errorBox);
-      hide(resultsBox);
+      hideAllResults();
       show(statusBox);
       screenBtn.disabled = true;
 
@@ -233,16 +370,16 @@
         if (!data.ok) {
           errorBox.textContent = data.error || "Something went wrong.";
           show(errorBox);
+          show(clearBtn);
           return;
         }
 
-        // Populate and reveal the results.
-        resultUrl.textContent = data.url;
-        resultUrl.href = data.url;
-        resultTitle.textContent = data.title;
-        resultDesc.textContent = data.description;
-        resultSumm.textContent = data.summary;
-        show(resultsBox);
+        // Render the right layout based on what the backend detected.
+        if (data.type === "youtube") {
+          renderYouTube(data);
+        } else {
+          renderWebsite(data);
+        }
         show(clearBtn);
       } catch (err) {
         hide(statusBox);
@@ -252,10 +389,10 @@
       }
     });
 
-    // --- Clear results so the user can try a new URL --------------------
+    // --- Clear results so the user can try a new input ------------------
     clearBtn.addEventListener("click", () => {
       urlInput.value = "";
-      hide(resultsBox);
+      hideAllResults();
       hide(errorBox);
       hide(clearBtn);
       urlInput.focus();
