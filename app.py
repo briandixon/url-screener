@@ -26,15 +26,18 @@ See OPERATING_MANUAL.md for a full developer walkthrough.
 
 import re
 from html import unescape
+from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-# Load environment variables from a local .env file (e.g. YOUTUBE_API_KEY) so
-# the YouTube feature can find its key. Safe to call when no .env exists.
-load_dotenv()
+# Load environment variables from the .env file that sits NEXT TO this file
+# (e.g. YOUTUBE_API_KEY). Using an explicit path based on __file__ means the
+# key is found no matter which directory you launch the app from. Safe to call
+# when no .env exists.
+load_dotenv(Path(__file__).with_name(".env"))
 
 import youtube_api
 from summarizer import extract_visible_text, summarize_text
