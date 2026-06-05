@@ -1,0 +1,39 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Flask / runtime ----
+instance/
+*.log
+.webassets-cache
+
+# ---- Testing / coverage ----
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Secrets / local config ----
+.env
+*.local
+
+# ---- Claude Code local settings ----
+.claude/
