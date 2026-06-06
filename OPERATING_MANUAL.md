@@ -1,6 +1,6 @@
 # URL Screener — Operating Manual & Developer Guide
 
-**Current version: 1.1.1**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
+**Current version: 1.2.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
 
 A developer-facing guide to how this app is built, how to run it, and how to
 extend it. If you are new to the project, read this top to bottom once.
@@ -396,9 +396,21 @@ the first step of every release** (see §11.5). Newest version on top.
 
 | Version | Date | Git tag | Summary |
 |---|---|---|---|
+| **1.2.0** | 2026-06-06 | `v1.2.0` | Feature: successful searches stack on the page with a "Show more" control (Issue #1). |
 | **1.1.1** | 2026-06-05 | `v1.1.1` | Fix: load `.env` from the app directory regardless of CWD. |
 | **1.1.0** | 2026-06-05 | `v1.1.0` | YouTube channel lookup; one auto-detecting input field. |
 | **1.0.0** | 2026-06-05 | `v1.0.0` | Initial release. |
+
+### 1.2.0 — 2026-06-06 — `v1.2.0`
+**Added**
+- **Results history (Issue #1):** each successful search now stays on the page
+  as a card, newest on top, instead of replacing the previous result. Shows 5 at
+  a time; a **"Show more"** button reveals 5 more per click. **Clear results**
+  wipes the whole session history. (Front-end only — `templates/index.html`.)
+
+**Changed**
+- Replaced the two single-result panels with a dynamically built, stacked card
+  list; each card is tagged "Website" or "YouTube".
 
 ### 1.1.1 — 2026-06-05 — `v1.1.1`
 **Fixed**

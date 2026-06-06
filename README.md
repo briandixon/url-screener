@@ -4,7 +4,7 @@ A small Flask web app: paste a website URL and get a brief **description** and a
 auto-generated **summary** built entirely from the page's own content — no
 external AI service and **no API key required**.
 
-![version](https://img.shields.io/badge/version-1.1.1-blue)
+![version](https://img.shields.io/badge/version-1.2.0-blue)
 ![python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
