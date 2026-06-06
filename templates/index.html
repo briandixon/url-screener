@@ -111,6 +111,24 @@
       font-size: 0.95rem;
     }
 
+    /* ---- Results history (stacked cards) ------------------------------- */
+    .history { margin-top: 22px; }
+    .result-card {
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 18px 6px; margin-top: 14px; background: #fbfcfe;
+      animation: cardIn 0.25s ease;
+    }
+    .result-card:first-child { margin-top: 0; }
+    .card-type {
+      display: inline-block; font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent);
+      background: #eef2ff; border-radius: 999px; padding: 3px 9px; margin-bottom: 10px;
+    }
+    .card-type.youtube { color: #b91c1c; background: #fef2f2; }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+    .show-more-wrap { margin-top: 16px; text-align: center; }
+
     /* ---- Results -------------------------------------------------------- */
     .results { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 20px; }
 
@@ -201,52 +219,13 @@
       <!-- Error message -->
       <div class="error hidden" id="error"></div>
 
-      <!-- Website results -->
-      <div class="results hidden" id="results">
-        <a class="result-url" id="result-url" href="#" target="_blank" rel="noopener"></a>
+      <!-- Results history: each successful search is added here as a card,
+           newest on top. Cards are built by JavaScript (see buildCard). -->
+      <div class="history hidden" id="history"></div>
 
-        <div class="field">
-          <div class="field-label">Title</div>
-          <div class="field-value field-title" id="result-title"></div>
-        </div>
-
-        <div class="field">
-          <div class="field-label">Description</div>
-          <div class="field-value" id="result-description"></div>
-        </div>
-
-        <div class="field">
-          <div class="field-label">Auto Summary</div>
-          <div class="field-value" id="result-summary"></div>
-        </div>
-      </div>
-
-      <!-- YouTube channel results -->
-      <div class="results hidden" id="yt-results">
-        <div class="yt-banner hidden" id="yt-banner"></div>
-
-        <div class="yt-head">
-          <img class="yt-avatar hidden" id="yt-avatar" alt="Channel avatar" />
-          <div class="yt-head-text">
-            <div class="field-value field-title" id="yt-title"></div>
-            <div class="yt-meta" id="yt-meta"></div>
-          </div>
-        </div>
-
-        <div class="field">
-          <div class="field-label">About</div>
-          <div class="field-value" id="yt-description"></div>
-        </div>
-
-        <div class="field">
-          <div class="field-label">Auto Summary</div>
-          <div class="field-value" id="yt-summary"></div>
-        </div>
-
-        <div class="field">
-          <div class="field-label">Links &amp; Creator</div>
-          <div class="field-value" id="yt-links"></div>
-        </div>
+      <!-- "Show more" appears only when more results are stored than shown. -->
+      <div class="show-more-wrap hidden" id="show-more-wrap">
+        <button type="button" class="btn-ghost" id="show-more-btn"></button>
       </div>
     </div>
 
@@ -255,93 +234,126 @@
 
   <script>
     // --- Grab the elements we'll need to read from / write to. ----------
-    const form        = document.getElementById("screen-form");
-    const urlInput    = document.getElementById("url-input");
-    const screenBtn   = document.getElementById("screen-btn");
-    const clearBtn    = document.getElementById("clear-btn");
-    const statusBox   = document.getElementById("status");
-    const errorBox    = document.getElementById("error");
-
-    // Website result elements.
-    const resultsBox  = document.getElementById("results");
-    const resultUrl   = document.getElementById("result-url");
-    const resultTitle = document.getElementById("result-title");
-    const resultDesc  = document.getElementById("result-description");
-    const resultSumm  = document.getElementById("result-summary");
-
-    // YouTube result elements.
-    const ytBox     = document.getElementById("yt-results");
-    const ytBanner  = document.getElementById("yt-banner");
-    const ytAvatar  = document.getElementById("yt-avatar");
-    const ytTitle   = document.getElementById("yt-title");
-    const ytMeta    = document.getElementById("yt-meta");
-    const ytDesc    = document.getElementById("yt-description");
-    const ytSumm    = document.getElementById("yt-summary");
-    const ytLinks   = document.getElementById("yt-links");
+    const form         = document.getElementById("screen-form");
+    const urlInput     = document.getElementById("url-input");
+    const screenBtn    = document.getElementById("screen-btn");
+    const clearBtn     = document.getElementById("clear-btn");
+    const statusBox    = document.getElementById("status");
+    const errorBox     = document.getElementById("error");
+    const historyBox   = document.getElementById("history");
+    const showMoreWrap = document.getElementById("show-more-wrap");
+    const showMoreBtn  = document.getElementById("show-more-btn");
 
     // Small helpers to toggle visibility.
     const show = (el) => el.classList.remove("hidden");
     const hide = (el) => el.classList.add("hidden");
 
-    // Hide every result panel (used before showing a fresh one).
-    function hideAllResults() {
-      hide(resultsBox);
-      hide(ytBox);
+    // --- Session history state (Issue #1) -------------------------------
+    // Every successful search is stored here, newest first. The page shows
+    // the first `visibleCount` of them; "Show more" reveals 5 more each click.
+    const PAGE_SIZE = 5;
+    let historyData = [];     // all successful results this session (newest first)
+    let visibleCount = PAGE_SIZE;
+
+    // --- Small DOM builders ---------------------------------------------
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
     }
 
-    // --- Render a WEBSITE result ----------------------------------------
-    function renderWebsite(data) {
-      resultUrl.textContent = data.url;
-      resultUrl.href = data.url;
-      resultTitle.textContent = data.title;
-      resultDesc.textContent = data.description;
-      resultSumm.textContent = data.summary;
-      show(resultsBox);
+    // A labelled field block: a small caption above a value.
+    function field(label, value) {
+      const wrap = el("div", "field");
+      wrap.appendChild(el("div", "field-label", label));
+      wrap.appendChild(el("div", "field-value", value));
+      return wrap;
     }
 
-    // --- Render a YOUTUBE channel result --------------------------------
-    function renderYouTube(data) {
-      // Banner (optional).
+    // Build a WEBSITE result card.
+    function buildWebsiteCard(data) {
+      const card = el("div", "result-card");
+      card.appendChild(el("span", "card-type", "Website"));
+
+      const link = el("a", "result-url", data.url);
+      link.href = data.url; link.target = "_blank"; link.rel = "noopener";
+      card.appendChild(link);
+
+      const titleField = el("div", "field");
+      titleField.appendChild(el("div", "field-label", "Title"));
+      titleField.appendChild(el("div", "field-value field-title", data.title));
+      card.appendChild(titleField);
+
+      card.appendChild(field("Description", data.description));
+      card.appendChild(field("Auto Summary", data.summary));
+      return card;
+    }
+
+    // Build a YOUTUBE channel result card.
+    function buildYouTubeCard(data) {
+      const card = el("div", "result-card");
+      card.appendChild(el("span", "card-type youtube", "YouTube"));
+
       if (data.banner) {
-        ytBanner.style.backgroundImage = `url("${data.banner}")`;
-        show(ytBanner);
-      } else {
-        hide(ytBanner);
+        const banner = el("div", "yt-banner");
+        banner.style.backgroundImage = `url("${data.banner}")`;
+        card.appendChild(banner);
       }
 
-      // Avatar (optional).
+      const head = el("div", "yt-head");
       if (data.avatar) {
-        ytAvatar.src = data.avatar;
-        show(ytAvatar);
-      } else {
-        hide(ytAvatar);
+        const avatar = el("img", "yt-avatar");
+        avatar.src = data.avatar; avatar.alt = "Channel avatar";
+        head.appendChild(avatar);
       }
+      const headText = el("div", "yt-head-text");
+      headText.appendChild(el("div", "field-value field-title", data.title));
+      const meta = el("div", "yt-meta");
+      [data.handle, data.country, data.published && "Joined " + data.published]
+        .filter(Boolean)
+        .forEach((t) => meta.appendChild(el("span", null, t)));
+      headText.appendChild(meta);
+      head.appendChild(headText);
+      card.appendChild(head);
 
-      ytTitle.textContent = data.title;
+      card.appendChild(field("About", data.description));
+      card.appendChild(field("Auto Summary", data.summary));
 
-      // Meta row: handle · country · joined date (only the parts we have).
-      const meta = [];
-      if (data.handle)    meta.push(data.handle);
-      if (data.country)   meta.push(data.country);
-      if (data.published) meta.push("Joined " + data.published);
-      ytMeta.innerHTML = meta.map((m) => `<span></span>`).join("");
-      meta.forEach((text, i) => { ytMeta.children[i].textContent = text; });
+      const links = el("div", "field");
+      links.appendChild(el("div", "field-label", "Links & Creator"));
+      const linkVal = el("div", "field-value");
+      const a = el("a", "yt-link", "▶ Visit channel on YouTube");
+      a.href = data.channel_url; a.target = "_blank"; a.rel = "noopener";
+      linkVal.appendChild(a);
+      links.appendChild(linkVal);
+      card.appendChild(links);
+      return card;
+    }
 
-      ytDesc.textContent = data.description;
-      ytSumm.textContent = data.summary;
+    // --- Render the visible slice of history ----------------------------
+    function renderHistory() {
+      historyBox.innerHTML = "";
+      const visible = historyData.slice(0, visibleCount);
+      visible.forEach((data) => {
+        historyBox.appendChild(
+          data.type === "youtube" ? buildYouTubeCard(data) : buildWebsiteCard(data)
+        );
+      });
 
-      // Links: a "Visit channel" button (creator social links aren't exposed
-      // by the YouTube Data API, so we link to the channel itself).
-      ytLinks.innerHTML = "";
-      const link = document.createElement("a");
-      link.className = "yt-link";
-      link.href = data.channel_url;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = "▶ Visit channel on YouTube";
-      ytLinks.appendChild(link);
+      // Toggle the results container and the Clear button.
+      if (historyData.length > 0) { show(historyBox); show(clearBtn); }
+      else { hide(historyBox); hide(clearBtn); }
 
-      show(ytBox);
+      // Show the "Show more" button only when more are stored than shown.
+      const remaining = historyData.length - visibleCount;
+      if (remaining > 0) {
+        const next = Math.min(PAGE_SIZE, remaining);
+        showMoreBtn.textContent = `Show ${next} more (${remaining} hidden)`;
+        show(showMoreWrap);
+      } else {
+        hide(showMoreWrap);
+      }
     }
 
     // --- Handle form submission -----------------------------------------
@@ -350,10 +362,8 @@
       const url = urlInput.value.trim();
       if (!url) return;
 
-      // Reset UI into the "loading" state.
       hide(errorBox);
-      hideAllResults();
-      show(statusBox);
+      show(statusBox);          // spinner appears; existing results stay put
       screenBtn.disabled = true;
 
       try {
@@ -370,17 +380,14 @@
         if (!data.ok) {
           errorBox.textContent = data.error || "Something went wrong.";
           show(errorBox);
-          show(clearBtn);
           return;
         }
 
-        // Render the right layout based on what the backend detected.
-        if (data.type === "youtube") {
-          renderYouTube(data);
-        } else {
-          renderWebsite(data);
-        }
-        show(clearBtn);
+        // Success: add to the top of the history and re-render.
+        historyData.unshift(data);
+        renderHistory();
+        urlInput.value = "";
+        urlInput.focus();
       } catch (err) {
         hide(statusBox);
         screenBtn.disabled = false;
@@ -389,12 +396,19 @@
       }
     });
 
-    // --- Clear results so the user can try a new input ------------------
+    // --- Show more: reveal another page of older results ----------------
+    showMoreBtn.addEventListener("click", () => {
+      visibleCount += PAGE_SIZE;
+      renderHistory();
+    });
+
+    // --- Clear results: wipe the whole session history ------------------
     clearBtn.addEventListener("click", () => {
-      urlInput.value = "";
-      hideAllResults();
+      historyData = [];
+      visibleCount = PAGE_SIZE;
+      renderHistory();
       hide(errorBox);
-      hide(clearBtn);
+      urlInput.value = "";
       urlInput.focus();
     });
   </script>
