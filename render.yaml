@@ -1,0 +1,24 @@
+# Render Blueprint for the URL Screener Flask app.
+# Render reads this on deploy: it installs deps, then runs the app with the
+# gunicorn production server (the Flask dev server in app.py is for local use
+# only). See https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: urlscreener
+    runtime: python
+    plan: free
+    # Install Python dependencies.
+    buildCommand: pip install -r requirements.txt
+    # Serve the Flask "app" object from app.py with gunicorn, bound to the
+    # port Render injects via $PORT (the dev server's 127.0.0.1:5000 won't work
+    # in production because Render needs the app on 0.0.0.0:$PORT).
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      # Pin a stable Python (local dev uses 3.14, which Render may not support).
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # Optional: only needed for the YouTube channel lookup feature.
+      # sync:false means "don't store the value here" — set it in the Render
+      # dashboard so the key stays secret.
+      - key: YOUTUBE_API_KEY
+        sync: false
