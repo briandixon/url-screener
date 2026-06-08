@@ -4,7 +4,7 @@ A small Flask web app: paste a website URL and get a brief **description** and a
 auto-generated **summary** built entirely from the page's own content — no
 external AI service and **no API key required**.
 
-![version](https://img.shields.io/badge/version-1.2.0-blue)
+![version](https://img.shields.io/badge/version-1.3.0-blue)
 ![python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -25,6 +25,14 @@ and the app auto-detects which one you entered.
 - Returns a channel **overview** (title, handle, about text, auto-summary) plus
   **links/creator info** (avatar, banner, country, join date, channel link).
 - Powered by the **YouTube Data API v3** (free key required — see setup below).
+
+**Content tags (v1.3.0)**
+- Every result is auto-labelled with up to four short, generic **tags** (e.g.
+  `espn.com` → `Sports` · `Media`; `@wsj` → `News`).
+- A **"Filter by tag"** bar collects every tag seen this session; click tags to
+  show only matching cards (matches any selected tag).
+- Tagging runs **fully locally** — keyword scoring plus a curated known-domain
+  map, no API key, deterministic.
 
 **Shared**
 - Clean, responsive web UI with loading, error, and **Clear results** states.
@@ -62,6 +70,7 @@ Then open **http://127.0.0.1:5000** in your browser.
 url-screener/
 ├── app.py               # Flask backend + routing (website vs YouTube)
 ├── summarizer.py        # Shared extractive text-summarizer utilities
+├── tagger.py            # Local content tagger (keyword + known-domain rules)
 ├── youtube_api.py       # YouTube channel lookup (YouTube Data API v3)
 ├── templates/
 │   └── index.html       # Single-page web UI (auto-detecting input)

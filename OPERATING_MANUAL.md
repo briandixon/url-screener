@@ -1,6 +1,6 @@
 # URL Screener — Operating Manual & Developer Guide
 
-**Current version: 1.2.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
+**Current version: 1.3.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
 
 A developer-facing guide to how this app is built, how to run it, and how to
 extend it. If you are new to the project, read this top to bottom once.
@@ -39,6 +39,7 @@ YouTube feature calls an external API.
 url-screener/
 ├── app.py               # Flask backend: routing + website screening
 ├── summarizer.py        # Shared extractive text-summarizer (used by both features)
+├── tagger.py            # Shared local content tagger (used by both features)
 ├── youtube_api.py       # YouTube channel lookup via YouTube Data API v3
 ├── templates/
 │   └── index.html       # The single-page web UI (HTML + CSS + JS)
@@ -55,9 +56,12 @@ which is why `index.html` lives there.
 **How the modules relate:**
 - `app.py` owns the Flask routes and the website pipeline. Its `dispatch_input()`
   decides website vs YouTube and calls the right handler.
-- `youtube_api.py` owns everything YouTube. It imports the shared summarizer.
+- `youtube_api.py` owns everything YouTube. It imports the shared summarizer
+  and tagger.
 - `summarizer.py` holds the text helpers (`extract_visible_text`, `summarize_text`)
   so both features share one implementation with no duplication or circular imports.
+- `tagger.py` holds the content tagger (`generate_tags`), shared the same way so
+  websites and YouTube channels are labelled by one implementation.
 
 ---
 
@@ -119,14 +123,14 @@ dispatch_input()  — picks the handler
    │         ├─ extract_details()   regex out <title> + meta description
    │         ├─ extract_visible_text()  (summarizer.py)
    │         └─ summarize_text()        (summarizer.py)
-   │         ▼  { ok, type:"website", url, domain, title, description, summary }
+   │         ▼  { ok, type:"website", url, domain, title, description, summary, tags }
    │
    └─ YES → youtube_api.screen_channel(raw)     (YouTube pipeline)
              ├─ resolve_channel_id()  name/@handle/URL → channel id (Data API)
              ├─ _fetch_channel()      channels.list (snippet + branding)
              └─ summarize_text()      (summarizer.py)
              ▼  { ok, type:"youtube", title, handle, description, summary,
-                  channel_url, avatar, banner, country, published }
+                  channel_url, avatar, banner, country, published, tags }
    ▼
 Browser renders the fields and shows the "Clear results" button
 ```
@@ -163,6 +167,18 @@ The code is split into three small modules, each with one job:
 > These three lived in `app.py` in v1.0.0. They moved to `summarizer.py` in
 > v1.1.0 so the YouTube feature can reuse them without duplication. Behavior is
 > unchanged.
+
+### `tagger.py` functions (shared, added in v1.3.0)
+
+| Function | Responsibility |
+|---|---|
+| `generate_tags(text, domain, title, description)` | Assign up to `MAX_TAGS` short category tags. Merges curated known-domain hints (`DOMAIN_HINTS`) with keyword scoring (`CATEGORY_KEYWORDS`) over the title/description/body. Title + description are weighted more heavily. |
+
+Like the summarizer, tagging is **local, deterministic, and dependency-free**:
+the same input always yields the same tags, with no API key. To extend it, add a
+category + keywords to `CATEGORY_KEYWORDS`, or a high-confidence domain to
+`DOMAIN_HINTS`. Both `screen_url()` (app.py) and `build_result()` (youtube_api.py)
+call it and add a `"tags"` list to their result dict.
 
 ### The summarization algorithm (extractive frequency scoring)
 This is the heart of the app. It does **not** generate new prose; it **selects**
@@ -396,10 +412,29 @@ the first step of every release** (see §11.5). Newest version on top.
 
 | Version | Date | Git tag | Summary |
 |---|---|---|---|
+| **1.3.0** | 2026-06-07 | `v1.3.0` | Feature: local content tags on each card + a "Filter by tag" bar. |
 | **1.2.0** | 2026-06-06 | `v1.2.0` | Feature: successful searches stack on the page with a "Show more" control (Issue #1). |
 | **1.1.1** | 2026-06-05 | `v1.1.1` | Fix: load `.env` from the app directory regardless of CWD. |
 | **1.1.0** | 2026-06-05 | `v1.1.0` | YouTube channel lookup; one auto-detecting input field. |
 | **1.0.0** | 2026-06-05 | `v1.0.0` | Initial release. |
+
+### 1.3.0 — 2026-06-07 — `v1.3.0`
+**Added**
+- **Content tags:** every result now carries up to four short, generic category
+  tags (e.g. `espn.com` → Sports + Media; `@wsj` → News). Tagging is **fully
+  local and deterministic** — a new **`tagger.py`** module combines a curated
+  known-domain map (`DOMAIN_HINTS`) with keyword scoring (`CATEGORY_KEYWORDS`)
+  over the title/description/body. No API key, no new dependencies.
+- **Tag filter bar (UI):** a "Filter by tag" section collects every tag seen
+  this session; clicking tags filters the stacked results to those matching
+  **any** selected tag (OR logic), with a live "Showing X of Y" count and a
+  **Clear filters** action. Filtering is client-side over the session history.
+
+**Changed**
+- `screen_url()` (app.py) and `build_result()` (youtube_api.py) now include a
+  `"tags"` list in their result dict. Backward-compatible — an added field only.
+- Result cards render a tag-chip row; the front-end paging resets when a filter
+  is toggled so the visible slice always reflects the active filter.
 
 ### 1.2.0 — 2026-06-06 — `v1.2.0`
 **Added**
