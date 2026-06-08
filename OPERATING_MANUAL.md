@@ -1,6 +1,6 @@
 # URL Screener — Operating Manual & Developer Guide
 
-**Current version: 1.3.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
+**Current version: 1.4.0**  ·  Versioning: [Semantic Versioning](https://semver.org/)  ·  See [§11 Version Control Workflow](#11-version-control-workflow), [§12 Version Lineage](#12-version-lineage), and [§13 YouTube Data API Setup](#13-youtube-data-api-setup).
 
 A developer-facing guide to how this app is built, how to run it, and how to
 extend it. If you are new to the project, read this top to bottom once.
@@ -412,11 +412,30 @@ the first step of every release** (see §11.5). Newest version on top.
 
 | Version | Date | Git tag | Summary |
 |---|---|---|---|
+| **1.4.0** | 2026-06-08 | `v1.4.0` | Feature: "Download .md" export of session results as a grounded Markdown file (Issue #7). |
 | **1.3.0** | 2026-06-07 | `v1.3.0` | Feature: local content tags on each card + a "Filter by tag" bar. |
 | **1.2.0** | 2026-06-06 | `v1.2.0` | Feature: successful searches stack on the page with a "Show more" control (Issue #1). |
 | **1.1.1** | 2026-06-05 | `v1.1.1` | Fix: load `.env` from the app directory regardless of CWD. |
 | **1.1.0** | 2026-06-05 | `v1.1.0` | YouTube channel lookup; one auto-detecting input field. |
 | **1.0.0** | 2026-06-05 | `v1.0.0` | Initial release. |
+
+### 1.4.0 — 2026-06-08 — `v1.4.0`
+**Added**
+- **Markdown export (Issue #7):** a **"⬇ Download .md"** button in the actions
+  row exports the session's results to a `.md` file
+  (`url-screener-results-YYYY-MM-DD.md`) so they can be dropped into external
+  tools such as Claude. The document carries a header (export timestamp, result
+  count, and a note that the summaries are local/extractive — keeping the export
+  **grounded** in each page's own content) followed by one section per result
+  with type, URL/handle, tags, description/about, and the auto-summary.
+- The export **respects the active tag filter** (downloads exactly what's shown)
+  and is generated **fully client-side** via a `Blob` download — no new Flask
+  route and no new dependencies, consistent with the app's local-first design.
+
+**Changed**
+- `templates/index.html` only. New `buildMarkdown()` / `downloadMarkdown()`
+  helpers; the Download button shares the ghost-button style but gets an accent
+  (not danger) hover so it reads as non-destructive next to **Clear results**.
 
 ### 1.3.0 — 2026-06-07 — `v1.3.0`
 **Added**

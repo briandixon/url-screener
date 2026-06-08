@@ -4,7 +4,7 @@ A small Flask web app: paste a website URL and get a brief **description** and a
 auto-generated **summary** built entirely from the page's own content — no
 external AI service and **no API key required**.
 
-![version](https://img.shields.io/badge/version-1.3.0-blue)
+![version](https://img.shields.io/badge/version-1.4.0-blue)
 ![python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -33,6 +33,14 @@ and the app auto-detects which one you entered.
   show only matching cards (matches any selected tag).
 - Tagging runs **fully locally** — keyword scoring plus a curated known-domain
   map, no API key, deterministic.
+
+**Markdown export (v1.4.0)**
+- A **"⬇ Download .md"** button exports your session's results to a clean
+  Markdown file you can drop into Claude or other tools (Issue #7).
+- The export is **grounded**: it reproduces the app's own extracted title,
+  description, tags, and local auto-summary verbatim — nothing is paraphrased.
+- It respects the active **tag filter**, so you download exactly what's on screen.
+  Generated **fully in the browser** — no server round-trip, no new dependencies.
 
 **Shared**
 - Clean, responsive web UI with loading, error, and **Clear results** states.
