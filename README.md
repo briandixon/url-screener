@@ -87,6 +87,7 @@ url-screener/
 ├── VERSION              # Current version (single source of truth)
 ├── README.md            # This file
 ├── OPERATING_MANUAL.md  # Developer guide + version lineage
+├── CLAUDE.md            # Working agreement for AI assistants / contributors
 └── .gitignore
 ```
 

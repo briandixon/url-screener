@@ -47,7 +47,8 @@ url-screener/
 ├── .env.example         # Template for local secrets (copy to .env)
 ├── VERSION              # Current version string (single source of truth)
 ├── README.md            # Project overview / quick start
-└── OPERATING_MANUAL.md  # This guide
+├── OPERATING_MANUAL.md  # This guide
+└── CLAUDE.md            # Working agreement for AI assistants / contributors
 ```
 
 Flask automatically looks for HTML templates inside a folder named `templates/`,
