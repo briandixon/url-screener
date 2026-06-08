@@ -41,6 +41,7 @@ load_dotenv(Path(__file__).with_name(".env"))
 
 import youtube_api
 from summarizer import extract_visible_text, summarize_text
+from tagger import generate_tags
 
 app = Flask(__name__)
 
@@ -156,14 +157,18 @@ def screen_url(raw_url: str) -> dict:
     # Choose the best available short description for the UI.
     description = details["description"] or summary or "No description available."
 
+    domain = urlparse(final_url).netloc
+
     return {
         "ok": True,
         "type": "website",
         "url": final_url,
-        "domain": urlparse(final_url).netloc,
+        "domain": domain,
         "title": details["title"] or "(no page title found)",
         "description": description,
         "summary": summary or "Not enough readable text on the page to summarize.",
+        "tags": generate_tags(visible_text, domain=domain,
+                              title=details["title"], description=details["description"]),
     }
 
 

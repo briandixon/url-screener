@@ -127,6 +127,45 @@
     .card-type.youtube { color: #b91c1c; background: #fef2f2; }
     @keyframes cardIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
+    /* ---- Tags ----------------------------------------------------------- */
+    .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
+    .tag {
+      font-size: 0.74rem; font-weight: 600; color: #334155;
+      background: #f1f5f9; border: 1px solid var(--border);
+      border-radius: 999px; padding: 4px 11px; line-height: 1.2;
+    }
+
+    /* ---- Tag filter bar ------------------------------------------------- */
+    .filter-bar {
+      margin-top: 20px; padding: 14px 16px; border-radius: 12px;
+      background: #f8fafc; border: 1px solid var(--border);
+    }
+    .filter-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 12px; margin-bottom: 10px;
+    }
+    .filter-title {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .filter-count { font-size: 0.8rem; color: var(--muted); }
+    .filter-clear {
+      font-size: 0.78rem; font-weight: 600; color: var(--accent);
+      background: none; border: none; padding: 0; cursor: pointer;
+    }
+    .filter-clear:hover { text-decoration: underline; }
+    .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .filter-chip {
+      font-size: 0.78rem; font-weight: 600; color: #334155;
+      background: #fff; border: 1.5px solid var(--border);
+      border-radius: 999px; padding: 5px 12px; cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .filter-chip:hover { border-color: var(--accent); color: var(--accent); }
+    .filter-chip.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+
     .show-more-wrap { margin-top: 16px; text-align: center; }
 
     /* ---- Results -------------------------------------------------------- */
@@ -219,6 +258,17 @@
       <!-- Error message -->
       <div class="error hidden" id="error"></div>
 
+      <!-- Tag filter bar: collects every tag seen this session; clicking a
+           chip filters the results below. Built by JS (see renderFilterBar). -->
+      <div class="filter-bar hidden" id="filter-bar">
+        <div class="filter-head">
+          <span class="filter-title">Filter by tag</span>
+          <span class="filter-count" id="filter-count"></span>
+          <button type="button" class="filter-clear hidden" id="filter-clear">Clear filters</button>
+        </div>
+        <div class="filter-chips" id="filter-chips"></div>
+      </div>
+
       <!-- Results history: each successful search is added here as a card,
            newest on top. Cards are built by JavaScript (see buildCard). -->
       <div class="history hidden" id="history"></div>
@@ -243,6 +293,10 @@
     const historyBox   = document.getElementById("history");
     const showMoreWrap = document.getElementById("show-more-wrap");
     const showMoreBtn  = document.getElementById("show-more-btn");
+    const filterBar    = document.getElementById("filter-bar");
+    const filterChips  = document.getElementById("filter-chips");
+    const filterCount  = document.getElementById("filter-count");
+    const filterClear  = document.getElementById("filter-clear");
 
     // Small helpers to toggle visibility.
     const show = (el) => el.classList.remove("hidden");
@@ -254,6 +308,11 @@
     const PAGE_SIZE = 5;
     let historyData = [];     // all successful results this session (newest first)
     let visibleCount = PAGE_SIZE;
+
+    // --- Tag filter state -----------------------------------------------
+    // Tags the user has toggled on. A card matches if it carries ANY active
+    // tag (OR logic). Empty set = no filter, show everything.
+    let activeFilters = new Set();
 
     // --- Small DOM builders ---------------------------------------------
     function el(tag, className, text) {
@@ -271,6 +330,14 @@
       return wrap;
     }
 
+    // A row of tag chips for a card (returns null if there are no tags).
+    function tagsRow(tags) {
+      if (!tags || tags.length === 0) return null;
+      const row = el("div", "tags");
+      tags.forEach((t) => row.appendChild(el("span", "tag", t)));
+      return row;
+    }
+
     // Build a WEBSITE result card.
     function buildWebsiteCard(data) {
       const card = el("div", "result-card");
@@ -279,6 +346,9 @@
       const link = el("a", "result-url", data.url);
       link.href = data.url; link.target = "_blank"; link.rel = "noopener";
       card.appendChild(link);
+
+      const tags = tagsRow(data.tags);
+      if (tags) card.appendChild(tags);
 
       const titleField = el("div", "field");
       titleField.appendChild(el("div", "field-label", "Title"));
@@ -317,6 +387,9 @@
       head.appendChild(headText);
       card.appendChild(head);
 
+      const tags = tagsRow(data.tags);
+      if (tags) card.appendChild(tags);
+
       card.appendChild(field("About", data.description));
       card.appendChild(field("Auto Summary", data.summary));
 
@@ -331,11 +404,51 @@
       return card;
     }
 
-    // --- Render the visible slice of history ----------------------------
+    // Results matching the current tag filter (OR logic). Empty filter = all.
+    function filteredHistory() {
+      if (activeFilters.size === 0) return historyData;
+      return historyData.filter((d) =>
+        (d.tags || []).some((t) => activeFilters.has(t))
+      );
+    }
+
+    // --- Render the tag filter bar --------------------------------------
+    function renderFilterBar() {
+      // Collect every unique tag across all results, in first-seen order.
+      const seen = [];
+      historyData.forEach((d) => (d.tags || []).forEach((t) => {
+        if (!seen.includes(t)) seen.push(t);
+      }));
+
+      // Forget any active filters whose tag no longer exists (e.g. after Clear).
+      activeFilters.forEach((t) => { if (!seen.includes(t)) activeFilters.delete(t); });
+
+      filterChips.innerHTML = "";
+      seen.forEach((t) => {
+        const chip = el("button", "filter-chip", t);
+        chip.type = "button";
+        if (activeFilters.has(t)) chip.classList.add("active");
+        chip.addEventListener("click", () => {
+          if (activeFilters.has(t)) activeFilters.delete(t);
+          else activeFilters.add(t);
+          visibleCount = PAGE_SIZE;   // reset paging for the new view
+          renderHistory();
+        });
+        filterChips.appendChild(chip);
+      });
+
+      // Show the bar only once there's at least one tag to filter by.
+      if (seen.length > 0) show(filterBar); else hide(filterBar);
+      if (activeFilters.size > 0) show(filterClear); else hide(filterClear);
+    }
+
+    // --- Render the visible slice of history (after filtering) -----------
     function renderHistory() {
+      renderFilterBar();
+
+      const results = filteredHistory();
       historyBox.innerHTML = "";
-      const visible = historyData.slice(0, visibleCount);
-      visible.forEach((data) => {
+      results.slice(0, visibleCount).forEach((data) => {
         historyBox.appendChild(
           data.type === "youtube" ? buildYouTubeCard(data) : buildWebsiteCard(data)
         );
@@ -345,8 +458,13 @@
       if (historyData.length > 0) { show(historyBox); show(clearBtn); }
       else { hide(historyBox); hide(clearBtn); }
 
-      // Show the "Show more" button only when more are stored than shown.
-      const remaining = historyData.length - visibleCount;
+      // Count summary in the filter bar.
+      filterCount.textContent = activeFilters.size > 0
+        ? `Showing ${results.length} of ${historyData.length}`
+        : `${historyData.length} result${historyData.length === 1 ? "" : "s"}`;
+
+      // Show the "Show more" button only when more match than are shown.
+      const remaining = results.length - visibleCount;
       if (remaining > 0) {
         const next = Math.min(PAGE_SIZE, remaining);
         showMoreBtn.textContent = `Show ${next} more (${remaining} hidden)`;
@@ -402,9 +520,17 @@
       renderHistory();
     });
 
+    // --- Clear filters: drop tag selections, keep the results -----------
+    filterClear.addEventListener("click", () => {
+      activeFilters.clear();
+      visibleCount = PAGE_SIZE;
+      renderHistory();
+    });
+
     // --- Clear results: wipe the whole session history ------------------
     clearBtn.addEventListener("click", () => {
       historyData = [];
+      activeFilters.clear();
       visibleCount = PAGE_SIZE;
       renderHistory();
       hide(errorBox);

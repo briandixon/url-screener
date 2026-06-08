@@ -28,6 +28,7 @@ from urllib.parse import unquote
 import requests
 
 from summarizer import summarize_text
+from tagger import generate_tags
 
 # Base endpoint for all Data API v3 calls.
 API_BASE = "https://www.googleapis.com/youtube/v3"
@@ -174,6 +175,11 @@ def build_result(channel: dict) -> dict:
 
     summary = summarize_text(description) if description else ""
 
+    # Tag from the channel's own title + description. We deliberately don't add
+    # the youtube.com domain hint ("Media"), since the card already shows a
+    # "YouTube" badge — the tags should describe the channel's topic instead.
+    tags = generate_tags(description, title=title, description=description)
+
     return {
         "ok": True,
         "type": "youtube",
@@ -186,6 +192,7 @@ def build_result(channel: dict) -> dict:
         "banner": banner,
         "country": country,
         "published": published,
+        "tags": tags,
     }
 
 
